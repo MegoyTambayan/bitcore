@@ -12,7 +12,6 @@ import { LogMiddleware } from './middleware';
 import { WalletService } from './server';
 import { Stats } from './stats';
 
-const bodyParser = require('body-parser');
 const compression = require('compression');
 const RateLimit = require('express-rate-limit');
 const rp = require('request-promise-native');
@@ -67,13 +66,17 @@ export class ExpressApp {
       next();
     });
 
-    const POST_LIMIT = 1024 * 100 /* Max POST 100 kb */;
+    const POST_LIMIT = 1024 * 100; // Max POST 100 KB
+    const POST_LIMIT_LARGE = 2 * 1024 * 1024; // Max POST 2 MB
 
-    this.app.use(
-      bodyParser.json({
-        limit: POST_LIMIT
-      })
-    );
+    this.app.use((req, res, next) => {
+      if (req.path.includes('/txproposals')) {
+        // Pushing a lot of utxos to txproposals can make the request much bigger than 100 MB
+        return express.json({ limit: POST_LIMIT_LARGE })(req, res, next);
+      } else {
+        return express.json({ limit: POST_LIMIT })(req, res, next);
+      }
+    });
 
     this.app.use((req, res, next) => {
       if (config.maintenanceOpts.maintenanceMode === true) {
@@ -1333,7 +1336,8 @@ export class ExpressApp {
 
     router.post('/v1/clearcache/', (req, res) => {
       getServerWithAuth(req, res, server => {
-        server.clearWalletCache().then(val => {
+        const opts = req.query;
+        server.clearWalletCache(opts).then(val => {
           if (val) {
             res.sendStatus(200);
           } else {
